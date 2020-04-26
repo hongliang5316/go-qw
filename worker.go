@@ -1,4 +1,4 @@
-package queueworker
+package qw
 
 import (
 	"sync"
