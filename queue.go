@@ -4,12 +4,18 @@ import (
 	"errors"
 )
 
+var (
+	ErrQueueFull   = errors.New("the queue is full")
+	ErrQueueEmpty  = errors.New("the queue is empty")
+	ErrQueueClosed = errors.New("the queue is closed")
+)
+
 type Queue interface {
 	// Push to the channel
 	Push(interface{}) error
 
 	// Pop from the channel
-	Pop() (interface{}, error)
+	Pop() (interface{}, bool, error)
 
 	// Block push to the channel
 	BPush(interface{})
@@ -47,12 +53,15 @@ func (q *queue) Push(t interface{}) error {
 	}
 }
 
-func (q *queue) Pop() (interface{}, error) {
+func (q *queue) Pop() (interface{}, bool, error) {
 	select {
-	case t := <-q.queueCh:
-		return t, nil
+	case t, ok := <-q.queueCh:
+		if !ok {
+			return nil, false, ErrQueueClosed
+		}
+		return t, ok, nil
 	default:
-		return nil, errors.New("queue is empty")
+		return nil, false, ErrQueueEmpty
 	}
 }
 

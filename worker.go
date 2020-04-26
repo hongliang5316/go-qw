@@ -22,8 +22,7 @@ type QueueWorker interface {
 	Push(interface{}) error
 
 	// Pop from the channel
-	Pop() (interface{}, error)
-
+	Pop() (interface{}, bool, error)
 	// Block pop from the channel
 	BPop() (interface{}, bool)
 
@@ -101,7 +100,7 @@ func (qw *queueWorker) Push(t interface{}) error {
 	return qw.Queue.Push(t)
 }
 
-func (qw *queueWorker) Pop() (interface{}, error) {
+func (qw *queueWorker) Pop() (interface{}, bool, error) {
 	return qw.Queue.Pop()
 }
 
