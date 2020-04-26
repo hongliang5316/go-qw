@@ -8,12 +8,10 @@ type WorkHandler func(interface{}) error
 type StopHandler func() error
 
 type QueueWorker interface {
-	// Consume the channel
-	// Start(queue, WorkHandler)
-
-	// stopped until all jobs were done
+	// Stop close the channel
 	Stop()
 
+	// Stopped until all jobs were done
 	Stopped() bool
 
 	Errors() chan error
@@ -23,6 +21,7 @@ type QueueWorker interface {
 
 	// Pop from the channel
 	Pop() (interface{}, bool, error)
+
 	// Block pop from the channel
 	BPop() (interface{}, bool)
 
@@ -64,7 +63,7 @@ func (qw *queueWorker) start(wh WorkHandler) {
 		go func(qw *queueWorker, wh WorkHandler) {
 			defer wg.Done()
 			for {
-				// fmt.Println(fmt.Sprintf("%p", qw))
+				// fmt.Printf("%p\n", qw)
 				data, ok := qw.BPop()
 				if ok {
 					if err := wh(data); err != nil {
