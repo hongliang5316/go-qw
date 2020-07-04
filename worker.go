@@ -62,18 +62,12 @@ func (qw *queueWorker) start(wh WorkHandler) {
 		wg.Add(1)
 		go func(qw *queueWorker, wh WorkHandler) {
 			defer wg.Done()
-			for {
-				// fmt.Printf("%p\n", qw)
-				data, ok := qw.BPop()
-				if ok {
-					if err := wh(data); err != nil {
-						select {
-						case qw.Errors() <- err:
-						default:
-						}
+			for data := range qw.QueueCh() {
+				if err := wh(data); err != nil {
+					select {
+					case qw.Errors() <- err:
+					default:
 					}
-				} else { // channel is closed, just exit this goroutine
-					return
 				}
 			}
 		}(qw, wh)
