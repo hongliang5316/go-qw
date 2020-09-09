@@ -1,7 +1,9 @@
 package qw
 
 import (
+	// "fmt"
 	"sync"
+	"time"
 )
 
 type WorkHandler func(interface{}) error
@@ -33,8 +35,36 @@ type QueueWorker interface {
 }
 
 type Options struct {
+	// The inner queue size (default 1000)
 	QueueSize int32
+	// The inner worker num (default 10)
 	WorkerNum int32
+	// This code is copied from https://github.com/Shopify/sarama/blob/master/config.go#L122
+	// Thanks sarama
+	Retry struct {
+		// The total number of times to retry a metadata request when the
+		// cluster is in the middle of a leader election (default 3).
+		Max int
+		// How long to wait for leader election to occur before retrying
+		// (default 250ms). Similar to the JVM's `retry.backoff.ms`.
+		Backoff time.Duration
+		// Called to compute backoff time dynamically. Useful for implementing
+		// more sophisticated backoff strategies. This takes precedence over
+		// `Backoff` if set.
+		BackoffFunc func(retries, maxRetries int) time.Duration
+	}
+}
+
+func NewOptions() *Options {
+	opt := new(Options)
+
+	opt.QueueSize = 1000
+	opt.WorkerNum = 10
+
+	opt.Retry.Max = 3
+	opt.Retry.Backoff = 250 * time.Millisecond
+
+	return opt
 }
 
 type queueWorker struct {
@@ -63,10 +93,31 @@ func (qw *queueWorker) start(wh WorkHandler) {
 		go func(qw *queueWorker, wh WorkHandler) {
 			defer wg.Done()
 			for data := range qw.QueueCh() {
-				if err := wh(data); err != nil {
+				retry := qw.opt.Retry.Max
+				for {
+					err := wh(data)
+					// fmt.Println("retry: ", retry)
+					if err == nil {
+						break
+					}
+
 					select {
 					case qw.Errors() <- err:
 					default:
+					}
+
+					retry--
+
+					if retry < 0 {
+						break
+					}
+
+					if qw.opt.Retry.BackoffFunc != nil {
+						maxRetries := qw.opt.Retry.Max
+						retries := maxRetries - retry
+						time.Sleep(qw.opt.Retry.BackoffFunc(retries, maxRetries))
+					} else {
+						time.Sleep(qw.opt.Retry.Backoff)
 					}
 				}
 			}

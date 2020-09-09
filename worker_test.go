@@ -13,8 +13,10 @@ func job(i interface{}) error {
 }
 
 func TestNewQueueWorker(t *testing.T) {
-	opt := Options{2, 1}
-	qw := NewQueueWorker(&opt, job)
+	opt := NewOptions()
+	opt.Retry.Max = 2
+	opt.Retry.Backoff = time.Second
+	qw := NewQueueWorker(opt, job)
 	qw.Push("data")
 	qw.Push("data")
 	qw.Stop()
