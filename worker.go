@@ -80,7 +80,7 @@ func NewQueueWorker(opt *Options, wh WorkHandler) QueueWorker {
 		opt:     opt,
 		errCh:   make(chan error, 1),
 		Queue:   NewQueue(opt.QueueSize),
-		stopped: make(chan struct{}, 0),
+		stopped: make(chan struct{}, 1),
 	}
 	go qw.start(wh)
 	return qw
