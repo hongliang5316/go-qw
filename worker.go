@@ -2,11 +2,12 @@ package qw
 
 import (
 	// "fmt"
+	"context"
 	"sync"
 	"time"
 )
 
-type WorkHandler func(interface{}) error
+type WorkHandler func(context.Context, interface{}) error
 type StopHandler func() error
 
 type QueueWorker interface {
@@ -53,6 +54,12 @@ type Options struct {
 		// `Backoff` if set.
 		BackoffFunc func(retries, maxRetries int) time.Duration
 	}
+
+	// Context per worker
+	ContextFunc func() context.Context
+
+	// When worker closed
+	DropFunc func(ctx context.Context) error
 }
 
 func NewOptions() *Options {
@@ -90,12 +97,16 @@ func (qw *queueWorker) start(wh WorkHandler) {
 	var wg sync.WaitGroup
 	for i := int32(0); i < qw.opt.WorkerNum; i++ {
 		wg.Add(1)
-		go func(qw *queueWorker, wh WorkHandler) {
+		ctx := context.Background()
+		if qw.opt.ContextFunc != nil {
+			ctx = qw.opt.ContextFunc()
+		}
+		go func(ctx context.Context, qw *queueWorker, wh WorkHandler) {
 			defer wg.Done()
 			for data := range qw.QueueCh() {
 				retry := qw.opt.Retry.Max
 				for {
-					err := wh(data)
+					err := wh(ctx, data)
 					// fmt.Println("retry: ", retry)
 					if err == nil {
 						break
@@ -121,7 +132,10 @@ func (qw *queueWorker) start(wh WorkHandler) {
 					}
 				}
 			}
-		}(qw, wh)
+			if qw.opt.DropFunc != nil {
+				qw.opt.DropFunc(ctx)
+			}
+		}(ctx, qw, wh)
 	}
 	wg.Wait()
 	qw.stopped <- struct{}{}
