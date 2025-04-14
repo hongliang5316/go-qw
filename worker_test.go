@@ -38,7 +38,7 @@ func TestNewQueueWorker(t *testing.T) {
 	qw.Push("data")
 	qw.Push("data")
 	qw.Push("data")
-	qw.Push("data")
+	qw.BPush("data")
 	qw.Stop()
 	if qw.Stopped() {
 		return
