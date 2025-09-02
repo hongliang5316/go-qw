@@ -7,8 +7,10 @@ import (
 	"time"
 )
 
-type WorkHandler func(context.Context, interface{}) error
-type StopHandler func() error
+type (
+	WorkHandler func(context.Context, []any) error
+	StopHandler func() error
+)
 
 type QueueWorker interface {
 	// Stop close the channel
@@ -58,6 +60,8 @@ type Options struct {
 		BackoffFunc func(retries, maxRetries int) time.Duration
 	}
 
+	BatchSize int32
+
 	// Context per worker
 	ContextFunc func() context.Context
 
@@ -73,6 +77,10 @@ func NewOptions() *Options {
 
 	opt.Retry.Max = 3
 	opt.Retry.Backoff = 250 * time.Millisecond
+
+	if opt.BatchSize <= 0 {
+		opt.BatchSize = 1
+	}
 
 	return opt
 }
@@ -106,10 +114,19 @@ func (qw *queueWorker) start(wh WorkHandler) {
 		}
 		go func(ctx context.Context, qw *queueWorker, wh WorkHandler) {
 			defer wg.Done()
+
+			dataList := []any{}
+			batchSize := qw.opt.BatchSize
+
 			for data := range qw.QueueCh() {
+				dataList = append(dataList, data)
+				if int32(len(dataList)) < batchSize {
+					continue
+				}
+
 				retry := qw.opt.Retry.Max
 				for {
-					err := wh(ctx, data)
+					err := wh(ctx, dataList)
 					// fmt.Println("retry: ", retry)
 					if err == nil {
 						break
@@ -134,7 +151,15 @@ func (qw *queueWorker) start(wh WorkHandler) {
 						time.Sleep(qw.opt.Retry.Backoff)
 					}
 				}
+
+				dataList = []any{}
 			}
+
+			if len(dataList) > 0 {
+				// process the remaining data
+				_ = wh(ctx, dataList)
+			}
+
 			if qw.opt.DropFunc != nil {
 				qw.opt.DropFunc(ctx)
 			}

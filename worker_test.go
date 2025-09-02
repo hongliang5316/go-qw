@@ -18,9 +18,9 @@ func drop(ctx context.Context) error {
 	return nil
 }
 
-func job(ctx context.Context, i interface{}) error {
+func job(ctx context.Context, i []any) error {
 	indexPtr, _ := ctx.Value("IndexPtr").(*int64)
-	fmt.Printf("do job: %s, context index: %d\n", i.(string), *indexPtr)
+	fmt.Printf("do job: %v, context index: %d\n", i, *indexPtr)
 	*indexPtr++
 	time.Sleep(100 * time.Millisecond)
 	return nil
@@ -30,6 +30,7 @@ func TestNewQueueWorker(t *testing.T) {
 	opt := NewOptions()
 	opt.WorkerNum = 1
 	opt.Retry.Max = 2
+	opt.BatchSize = 3
 	opt.Retry.Backoff = time.Second
 	opt.ContextFunc = initContext
 	opt.DropFunc = drop
