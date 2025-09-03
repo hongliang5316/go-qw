@@ -14,7 +14,7 @@ func initContext() context.Context {
 }
 
 func drop(ctx context.Context) error {
-	fmt.Printf("drop")
+	fmt.Println("drop")
 	return nil
 }
 
@@ -22,24 +22,43 @@ func job(ctx context.Context, i []any) error {
 	indexPtr, _ := ctx.Value("IndexPtr").(*int64)
 	fmt.Printf("do job: %v, context index: %d\n", i, *indexPtr)
 	*indexPtr++
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(500 * time.Millisecond)
 	return nil
 }
 
 func TestNewQueueWorker(t *testing.T) {
 	opt := NewOptions()
-	opt.WorkerNum = 1
+	opt.WorkerNum = 2
 	opt.Retry.Max = 2
-	opt.BatchSize = 3
-	opt.Retry.Backoff = time.Second
+	opt.BatchSize = 10
+	opt.PeriodicFlush = time.Second
 	opt.ContextFunc = initContext
 	opt.DropFunc = drop
 	qw := NewQueueWorker(opt, job)
+
+	go func() {
+		i := 0
+		for {
+			i++
+			if i > 5 {
+				break
+			}
+
+			time.Sleep(time.Second)
+			qw.Push("timer data")
+		}
+	}()
+
 	qw.Push("data")
 	qw.Push("data")
 	qw.Push("data")
 	qw.Push("data")
 	qw.BPush("data")
+	qw.BPush("data")
+	qw.BPush("data")
+
+	time.Sleep(10 * time.Second)
+
 	qw.Stop()
 	if qw.Stopped() {
 		return

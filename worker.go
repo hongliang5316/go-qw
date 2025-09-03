@@ -1,8 +1,8 @@
 package qw
 
 import (
-	// "fmt"
 	"context"
+	// "fmt"
 	"sync"
 	"time"
 )
@@ -22,19 +22,19 @@ type QueueWorker interface {
 	Errors() chan error
 
 	// Push to the channel
-	Push(interface{}) error
+	Push(any) error
 
 	// Block push to the channel
-	BPush(interface{})
+	BPush(any)
 
 	// Pop from the channel
-	Pop() (interface{}, bool, error)
+	Pop() (any, bool, error)
 
 	// Block pop from the channel
-	BPop() (interface{}, bool)
+	BPop() (any, bool)
 
 	// Get the queue channel
-	QueueCh() chan interface{}
+	QueueCh() chan any
 
 	// The length of queue
 	Len() int32
@@ -60,7 +60,8 @@ type Options struct {
 		BackoffFunc func(retries, maxRetries int) time.Duration
 	}
 
-	BatchSize int32
+	BatchSize     int32
+	PeriodicFlush time.Duration
 
 	// Context per worker
 	ContextFunc func() context.Context
@@ -80,6 +81,10 @@ func NewOptions() *Options {
 
 	if opt.BatchSize <= 0 {
 		opt.BatchSize = 1
+	}
+
+	if opt.PeriodicFlush <= 0 {
+		opt.PeriodicFlush = 5 * time.Second
 	}
 
 	return opt
@@ -117,42 +122,61 @@ func (qw *queueWorker) start(wh WorkHandler) {
 
 			dataList := []any{}
 			batchSize := qw.opt.BatchSize
+			periodicFlush := qw.opt.PeriodicFlush
 
-			for data := range qw.QueueCh() {
-				dataList = append(dataList, data)
-				if int32(len(dataList)) < batchSize {
-					continue
+			t := time.NewTimer(periodicFlush)
+			defer t.Stop()
+
+		L:
+			for {
+				select {
+				case <-t.C:
+					if len(dataList) > 0 {
+						_ = wh(ctx, dataList)
+						dataList = []any{}
+					}
+					t.Reset(periodicFlush)
+				case data, ok := <-qw.QueueCh():
+					if !ok {
+						break L
+					}
+
+					dataList = append(dataList, data)
+					if int32(len(dataList)) < batchSize {
+						continue
+					}
+
+					t.Reset(periodicFlush)
+
+					retry := qw.opt.Retry.Max
+					for {
+						err := wh(ctx, dataList)
+						if err == nil {
+							break
+						}
+
+						select {
+						case qw.Errors() <- err:
+						default:
+						}
+
+						retry--
+
+						if retry < 0 {
+							break
+						}
+
+						if qw.opt.Retry.BackoffFunc != nil {
+							maxRetries := qw.opt.Retry.Max
+							retries := maxRetries - retry
+							time.Sleep(qw.opt.Retry.BackoffFunc(retries, maxRetries))
+						} else {
+							time.Sleep(qw.opt.Retry.Backoff)
+						}
+					}
+
+					dataList = []any{}
 				}
-
-				retry := qw.opt.Retry.Max
-				for {
-					err := wh(ctx, dataList)
-					// fmt.Println("retry: ", retry)
-					if err == nil {
-						break
-					}
-
-					select {
-					case qw.Errors() <- err:
-					default:
-					}
-
-					retry--
-
-					if retry < 0 {
-						break
-					}
-
-					if qw.opt.Retry.BackoffFunc != nil {
-						maxRetries := qw.opt.Retry.Max
-						retries := maxRetries - retry
-						time.Sleep(qw.opt.Retry.BackoffFunc(retries, maxRetries))
-					} else {
-						time.Sleep(qw.opt.Retry.Backoff)
-					}
-				}
-
-				dataList = []any{}
 			}
 
 			if len(dataList) > 0 {
@@ -182,23 +206,23 @@ func (qw *queueWorker) Stopped() bool {
 	return true
 }
 
-func (qw *queueWorker) Push(t interface{}) error {
+func (qw *queueWorker) Push(t any) error {
 	return qw.Queue.Push(t)
 }
 
-func (qw *queueWorker) BPush(t interface{}) {
+func (qw *queueWorker) BPush(t any) {
 	qw.Queue.BPush(t)
 }
 
-func (qw *queueWorker) Pop() (interface{}, bool, error) {
+func (qw *queueWorker) Pop() (any, bool, error) {
 	return qw.Queue.Pop()
 }
 
-func (qw *queueWorker) BPop() (interface{}, bool) {
+func (qw *queueWorker) BPop() (any, bool) {
 	return qw.Queue.BPop()
 }
 
-func (qw *queueWorker) QueueCh() chan interface{} {
+func (qw *queueWorker) QueueCh() chan any {
 	return qw.Queue.QueueCh()
 }
 
